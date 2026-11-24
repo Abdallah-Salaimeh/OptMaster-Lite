@@ -1,0 +1,5 @@
+{
+  "description": "Describe the optimization problem, variables, objective, and every constraint here.",
+  "artifact_spec": "Describe the exact solution.npz keys and shapes the solver must write.",
+  "reward_objective": "optional_name_of_verified_objective"
+}

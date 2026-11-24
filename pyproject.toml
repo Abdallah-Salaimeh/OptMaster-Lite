@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optmaster"
+version = "1.0.0"
+description = "A Gemini-backed DAG framework for optimization formulation and heuristic exploration."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "OptMaster project team" }]
+dependencies = [
+    "numpy>=1.26",
+    "networkx>=3.2",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+embeddings = ["sentence-transformers>=3.0"]
+
+[project.scripts]
+optmaster = "main:main"
+
+[tool.setuptools]
+py-modules = ["agents", "engine", "execution", "main", "problems"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
