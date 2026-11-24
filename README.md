@@ -1,151 +1,196 @@
 # OptMaster
 
-A Gemini-backed, DAG-based optimization research prototype inspired by *OptMaster: A DAG-Based Framework for Formulation and Heuristic Discovery in Optimization* (ICML 2026). This repository is a runnable project implementation, not a reproduction package for the paper's full benchmark results.
+A Gemini-backed, DAG-based optimization research prototype inspired by *OptMaster: A DAG-Based Framework for Formulation and Heuristic Discovery in Optimization* (ICML 2026).
 
-## Repository status
+This repository contains a runnable implementation of selected ideas from the paper. It is not a reproduction package for the paper's full benchmark results.
 
-- Python 3.12 project metadata and editable installation are configured.
-- Git ignores, development instructions, security notes, and GitHub Actions CI are included.
-- The automated test suite is key-free and does not require Docker or a CPLEX installation on the host.
-- Real runs require a Gemini API key and Docker for the intended isolated solver execution.
+## Overview
 
+OptMaster explores optimization approaches using a directed acyclic graph (DAG) of candidate solution attempts. Each node represents a candidate with its plan, generated solver code, execution artifact, independent verification report, score, and summary.
 
-## Compact project layout
+The system combines:
+- LLM-assisted planning and solver-code generation.
+- Static checks on generated Python solver code.
+- Execution through Docker or a local subprocess backend.
+- Independently generated verification code.
+- Repair attempts based on execution and verification diagnostics.
+- Reward-based parent selection and stagnation-aware exploration.
+- Optional semantic novelty using SentenceTransformer embeddings.
 
-This ZIP keeps the application in five Python files instead of separate package folders:
+Gemini is the model provider used by this implementation. Generated optimization solver code is checked and prompted to use IBM CPLEX through DOcplex/CPLEX.
 
-- `agents.py`: Gemini client, planning, solver/verifier generation, repair, scoring, summaries, and context helpers.
-- `engine.py`: nodes, DAG, parent choice, stagnation, expansion, and semantic novelty.
-- `execution.py`: Docker/local backends, verification, scoring, and diagnostics.
-- `problems.py`: supported problem definitions and Gset reader.
-- `main.py`: node lifecycle and command-line entry point.
-- `tests/test_all.py`: combined automated tests.
+## Architecture
 
-The nested source modules are merged into these files. Only `tests` and `artifacts` remain as project folders.
+The project is organized into five main Python modules:
 
-OptMaster is a Gemini-backed optimization research prototype. Every generated optimization solver is required by prompt and code checks to use IBM CPLEX through DOcplex/CPLEX (or CP Optimizer for a suitable constraint-programming model). Gemini is the only model provider.
+| File | Responsibility |
+|---|---|
+| `main.py` | Command-line entry point and node lifecycle orchestration. |
+| `agents.py` | Gemini client, planner, solver and verifier generation, repair, scoring, and summaries. |
+| `engine.py` | Search DAG, nodes, parent selection, stagnation tracking, expansion control, and semantic novelty. |
+| `execution.py` | Docker/local execution backends, MAX-CUT verification helpers, scoring, and diagnostics. |
+| `problems.py` | Optimization problem definitions, including MAX-CUT, Circle Packing, custom problems, and Gset loading. |
 
-## Run on Windows
+Additional project files:
 
-1. Install Python 3.12 and Docker Desktop. CPLEX's Python runtime compatibility depends on the Studio version; Python 3.12 is used for the supplied setup. Start Docker Desktop before running OptMaster.
-2. In this folder, make the private key file:
+- `tests/test_all.py` — automated test suite.
+- `Dockerfile.executor` — environment for executing generated solver scripts.
+- `.env.example` — example environment configuration.
+- `requirements-ci.txt` — lightweight test dependencies.
+- `requirements-embeddings.txt` — optional semantic-embedding dependencies.
+- `docs/PROJECT_SCOPE.md` — implementation scope and limitations.
 
-   ```powershell
-   Copy-Item .env.example .env
-   notepad .env
-   ```
+## Requirements
 
-   Replace `PASTE_YOUR_GEMINI_API_KEY_HERE` with your Gemini API key and save. `GEMINI_MODEL` defaults to `gemini-3.8-flash`; you can change it to another model available to your Gemini API project. Do not upload the `.env` file; it contains your API key.
+- Python 3.12
+- A Gemini API key for live LLM-backed runs
+- Docker Desktop or Docker Engine for isolated solver execution
 
-3. Install the small host-side Python requirements and build the Docker solver image:
+The Docker image installs DOcplex and IBM CPLEX Community Edition. The Community Edition has model-size limits, including limits on variables and constraints. A separate host-side CPLEX installation is not required for the supplied Docker execution setup.
 
-   ```powershell
-   py -3.12 -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install --upgrade pip
-   .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-   docker build -f Dockerfile.executor -t optmaster-python:3.12 .
-   ```
+The automated tests do not require a Gemini API key, Docker, or a host CPLEX installation.
 
-   Host requirements are intentionally small. The Docker image installs DOcplex and IBM CPLEX Community Edition, which is free but limited to 1,000 variables and 1,000 constraints. The solver runs in Docker; no separate CPLEX install on Windows is needed.
+## Configuration
 
-4. Run a small MAX-CUT search:
+Create a local `.env` file from the supplied example:
 
-   ```powershell
-   .\.venv\Scripts\python.exe main.py
-   ```
+```powershell
+Copy-Item .env.example .env
+```
 
-The default is one expansion round for a quick, low-dependency run. For the paper's multi-parent novelty selection, install the optional embedding package in the host environment with `python -m pip install -r requirements-embeddings.txt`; this adds the SentenceTransformer/PyTorch stack, and the model downloads the first time a multi-parent selection is needed. Gemini requests and model downloads require an internet connection. Artifacts are written under `artifacts/`.
+Add your Gemini API key to `.env`. The default model setting is defined by `GEMINI_MODEL` in `.env.example`; change it if you want to use another model available to your API project.
 
-Docker is the default execution backend for the paper's sandboxed generated-code execution. It disables network access and applies process, memory, and CPU limits. Without Docker, set `OPTMASTER_EXECUTOR=local` in `.env`; solver scripts then run directly on Windows with no sandbox. Local mode may be useful for a setup check, but it does not meet a sandboxed-execution requirement. A cluster-specific adapter is not included because the uploaded resources contain no cluster scheduler, endpoint, or credentials.
+Keep `.env` private. It is excluded from version control by `.gitignore`. Never commit API keys or other credentials.
 
-## Gemini API configuration
+Relevant runtime settings include:
 
-The default model is `gemini-3.8-flash`. For this model, the client omits the legacy `temperature` generation parameter because the current Gemini 3.8 Flash API guidance lists temperature controls among unsupported parameters. The agent-specific temperature preferences remain in the code as hints for other explicitly configured compatible models; they are not sent to Gemini 3.8 Flash.
+| Environment variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Gemini API authentication. |
+| `GEMINI_MODEL` | Gemini model identifier. |
+| `OPTMASTER_EXECUTOR` | Execution backend: `docker` or `local`. |
+| `OPTMASTER_TIMEOUT_SECONDS` | Solver execution timeout. |
+| `OPTMASTER_MAX_REPAIRS` | Maximum repair attempts configured for the lifecycle. |
+| `OPTMASTER_PARALLELISM` | Candidate evaluation parallelism. |
 
-## Paper mechanisms implemented
+## Installation
 
-- Planning proposes distinct methods and can explore alternate interpretations when the statement is ambiguous.
-- Generated optimizer scripts are statically checked to import `docplex` or `cplex`, call a solve API, and avoid other solver libraries. Prompts prohibit replacing CPLEX with a different solver.
-- DOcplex builds the optimization model and invokes IBM CPLEX; CP Optimizer from the IBM Studio family is permitted for a suitable constraint-programming model.
-- Nodes hold plans, code, artifacts, independent verifier reports, scores, and transferable summaries in a DAG.
-- First-parent sampling uses stable Boltzmann/softmax reward selection. Additional parents are selected by reward plus stagnation-weighted SentenceTransformer cosine novelty.
-- Stagnation controls the 1/2/3-parent refine, cross, and fuse expansion modes; the selected mode is included in the solver prompt.
-- Candidate generation and verification run as separate code stages. The verifier receives the problem and artifact, not the solver source.
-- Failed nodes enter a repair queue before the next expansion. Repair retains the same trajectory and expansion mode.
-- Verified numeric objectives are used directly. When a feasible report has no reliable numeric objective, Gemini supplies a validated normalized score in [0, 1]; the search can stop at 0.94.
-- Search rounds, deterministic search seeds, and parallel candidate count are configurable. The paper's experiment settings can be requested with `--max-steps 30 --parallelism 3`.
-- Execution uses an interchangeable backend contract with Docker and local subprocess implementations.
-- Minimal host setup avoids the heavyweight embedding stack for a one-round, single-parent run; install the optional embedding requirements for the full SentenceTransformer cosine-novelty mechanism.
-- Formulation tasks can be supplied as JSON. The verifier checks feasibility and recomputes objectives from the artifact.
+Create and activate a Python 3.12 virtual environment, then install the project:
 
-## Paper task examples
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
 
-### MAX-CUT / Gset70
+Build the solver execution image:
 
-The default `max_cut` is a small graph for a quick run. The uploaded project resources do not contain the Gset70 instance file. If you obtain the unit-weight Gset70 edge file, pass its path:
+```powershell
+docker build -f Dockerfile.executor -t optmaster-python:3.12 .
+```
+
+## Running OptMaster
+
+Run the default small MAX-CUT example:
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+```
+
+The default problem is a small graph intended for a quick functional run. Generated artifacts are written under `artifacts/`.
+
+Docker is the default execution backend. It runs generated solver scripts in a restricted container with network access disabled and resource limits applied.
+
+To use the local subprocess backend instead, set the following in `.env`:
+
+```dotenv
+OPTMASTER_EXECUTOR=local
+```
+
+Local execution is useful for development but does not provide the same isolation as Docker and should not be used for untrusted generated code.
+
+## Optional semantic novelty
+
+The SentenceTransformer embedding stack is optional. Install it to enable semantic cosine-distance calculations during multi-parent selection:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-embeddings.txt
+```
+
+The embedding model may be downloaded the first time it is needed, so an internet connection is required for that initial download.
+
+## Supported problem examples
+
+### MAX-CUT and Gset instances
+
+The default MAX-CUT problem is a small example. A Gset instance file is not bundled with this repository. If you have a compatible unit-weight Gset70 edge file, run:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --problem gset70 --gset-file .\data\Gset70.txt --max-steps 30 --parallelism 3 --seed 42
 ```
 
-The reader accepts either a `p edge N M` DIMACS header or an `N M` header, followed by unit-weight edge rows.
+The reader accepts either a DIMACS-style `p edge N M` header or an `N M` header, followed by unit-weight edge rows.
 
 ### Circle Packing
 
-Circle Packing uses independent radii and maximizes their sum, with square-containment and pairwise non-overlap constraints. Its independent verifier checks the constraints and recomputes the sum. Run the paper's sizes as:
+Circle Packing maximizes the sum of circle radii subject to square-containment and pairwise non-overlap constraints. Example runs:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --problem circle_packing --circles 26 --max-steps 30 --parallelism 3 --seed 42
 .\.venv\Scripts\python.exe main.py --problem circle_packing --circles 32 --max-steps 30 --parallelism 3 --seed 42
 ```
 
-### Other formulation tasks
+### Custom formulation problems
 
-Create a JSON file with `description`, `artifact_spec`, and optionally `reward_objective`, then run:
+Custom problems can be supplied as JSON containing a `description`, an `artifact_spec`, and optionally a `reward_objective`:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --problem custom --problem-file .\my_problem.json
 ```
 
-For a task without a directly measurable objective, omit `reward_objective` and the normalized evaluator is used after feasibility verification.
+The repository includes `custom_problem.template.json` as a starting point.
 
-## Publish this project to GitHub
+## Search and verification approach
 
-After extracting this ZIP, open a terminal in the extracted project root (the folder containing `main.py`) and run:
+The search engine maintains candidate nodes in a DAG. It selects parents using reward-based sampling and, when multiple parents are selected, can incorporate semantic distance between candidate plans. A stagnation tracker adjusts the probability of refinement, crossover, and fusion-style expansion.
 
-```powershell
-git init
-git add .
-git commit -m "Initial OptMaster project"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
-```
+For each candidate, the lifecycle broadly performs the following steps:
 
-Create an empty GitHub repository first and replace the remote URL with your repository URL. Do not initialize the GitHub repository with an additional README, license, or `.gitignore`, because those files are already present here. Before pushing, confirm that `.env` is not staged (`git status --short`) and that no private datasets or generated artifacts have been added.
+1. Generate a solver plan and Python implementation.
+2. Apply static checks to the generated code.
+3. Execute the solver and collect its artifact.
+4. Run an independent verifier against the artifact.
+5. Attempt repairs when execution or verification fails.
+6. Calculate a score from the verified objective, using a normalized LLM-based fallback only when needed.
+7. Summarize the candidate for transfer into later search steps.
 
-No open-source license is included. Unless the project owners choose and add a license, the repository should be treated as “all rights reserved”; public visibility alone does not grant reuse rights.
+Static syntax checks do not establish mathematical correctness. The independent verifier is responsible for checking feasibility and recomputing objective values from the produced artifact.
 
 ## Tests
 
-The ZIP includes a key-free `.env.example`. Keep your real API key in `.env` and do not share that file.
-
-Run tests locally:
+Install the lightweight test dependencies and run:
 
 ```powershell
-python -m pip install -r requirements-ci.txt
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pip install -r requirements-ci.txt
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests use a stubbed HTTP response for the Gemini client and do not need an API key or CPLEX license.
+The tests use mocked Gemini HTTP responses where applicable, so they do not require a live API key.
 
-## Reproduction limits
+## Scope and reproduction limitations
 
-The paper's benchmark files for IndustryOR, Mamo-Complex, OptMATH, ComplexOR, LogiOR, and Gset70 were not included in the uploaded project archives. The Gset reader and formulation entry point are implemented, but those benchmark files must be supplied to run those evaluations. Circle Packing formulation and feasibility verification support the paper's 26/27/32 sizes, but the paper's discovered heuristics, published objective values, multi-seed tables, and significance results have not been reproduced. Each run accepts an explicit seed; multi-seed aggregation must be run and reported separately. CPLEX supports LP/MIP and supported convex quadratic/QCP classes; general nonconvex nonlinear models may need a justified linearization or reformulation, and results can differ from the paper. Do not present this prototype's outputs as the paper's reported results.
+The benchmark datasets for IndustryOR, Mamo-Complex, OptMATH, ComplexOR, LogiOR, and Gset70 were not included in the supplied project resources. The Gset reader and formulation entry point are present, but the corresponding benchmark files must be provided separately.
 
-## Execution safety
+The implementation includes Circle Packing formulation and feasibility-verification support. However, the paper's discovered heuristics, published objective values, multi-seed tables, and statistical results have not been reproduced by this repository. Results from this prototype must not be represented as the paper's reported results.
 
-Docker execution disables network access, drops Linux capabilities, sets process/memory/CPU limits, uses a read-only container root, and mounts only a temporary run directory. This is a practical isolation layer, not a formal security guarantee. Keep API credentials in the host `.env`; they are not passed into solver containers. Local execution has no sandbox and should not be used for untrusted generated code.
+The supplied execution setup uses IBM CPLEX Community Edition, which has model-size restrictions. Some general nonconvex nonlinear optimization formulations may require reformulation or may not be supported by the selected solver.
 
+## Security considerations
 
+Generated solver code is untrusted input. Docker execution applies practical isolation measures, including disabled network access, dropped Linux capabilities, a read-only container root, and CPU, memory, and process limits. These measures are not a formal security guarantee.
 
+API credentials remain in the host environment and should not be passed into solver containers. The local execution backend does not provide a security sandbox.
+
+## License
+
+No open-source license is currently included. Unless the project owners add a license, the repository should be treated as all rights reserved. Public visibility does not by itself grant permission to reuse, modify, or redistribute the code.
